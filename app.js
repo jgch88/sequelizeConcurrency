@@ -1,7 +1,11 @@
+const cls = require('cls-hooked');
+const namespace = cls.createNamespace('locking-namespace');
+
 var AsyncLock = require('async-lock');
 var lock = new AsyncLock();
 
 const Sequelize = require('sequelize');
+Sequelize.useCLS(namespace);
 const express = require('express')
 const app = express()
 const port = 3000
@@ -40,11 +44,7 @@ app.get('/', async (req, res) => {
 })
 
 app.get('/add', async (req, res) => {
-  const t = await sequelize.transaction();
-
-  try {
-
-    
+  sequelize.transaction(async (t1) => {
     counter += 1;
     console.log(`incrementing counter to ${counter}`)
 
@@ -52,7 +52,7 @@ app.get('/add', async (req, res) => {
       where: {
         id: 1
       }
-    }, { transaction: t });
+    });
     
     const newValue = parseInt(count.value) + 1;
 
@@ -62,16 +62,13 @@ app.get('/add', async (req, res) => {
       where: {
         id: 1
       }
-    }, { transaction: t })
+    })
     const message = `new value ${newValue}, count: ${counter}`;
     console.log(message);
-    
-    await t.commit();
     res.send(message);
-  } catch (e) {
-    await t.rollback();
-    res.send('error');
-  }
+    t1.commit();
+    return;
+  })
 })
 
 app.listen(port, () => console.log(`Example app listening on port ${port}!`))
