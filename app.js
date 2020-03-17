@@ -25,6 +25,8 @@ const Count = sequelize.define('Count', {
 //   value: 1
 // });
 
+let counter = 0;
+
 app.get('/', async (req, res) => {
   const count = await Count.findOne({
     where: {
@@ -35,6 +37,7 @@ app.get('/', async (req, res) => {
 })
 
 app.get('/add', async (req, res) => {
+  counter += 1;
   const count = await Count.findOne({
     where: {
       id: 1
@@ -43,14 +46,16 @@ app.get('/add', async (req, res) => {
   
   const newValue = parseInt(count.value) + 1;
 
-  Count.update({
+  await Count.update({
     value: newValue
   }, {
     where: {
       id: 1
     }
   })
-  res.send(`new value ${newValue}`)
+  const message = `new value ${newValue}, count: ${counter}`;
+  console.log(message);
+  res.send(message)
 })
 
 app.listen(port, () => console.log(`Example app listening on port ${port}!`))
