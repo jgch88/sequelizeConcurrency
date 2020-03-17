@@ -1,3 +1,6 @@
+var AsyncLock = require('async-lock');
+var lock = new AsyncLock();
+
 const Sequelize = require('sequelize');
 const express = require('express')
 const app = express()
@@ -37,25 +40,30 @@ app.get('/', async (req, res) => {
 })
 
 app.get('/add', async (req, res) => {
-  counter += 1;
-  const count = await Count.findOne({
-    where: {
-      id: 1
-    }
-  });
-  
-  const newValue = parseInt(count.value) + 1;
+  lock.acquire('counter_key', async () => {
+    counter += 1;
+    console.log(`incrementing counter to ${counter}`)
 
-  await Count.update({
-    value: newValue
-  }, {
-    where: {
-      id: 1
-    }
-  })
-  const message = `new value ${newValue}, count: ${counter}`;
-  console.log(message);
-  res.send(message)
+    const count = await Count.findOne({
+      where: {
+        id: 1
+      }
+    });
+    
+    const newValue = parseInt(count.value) + 1;
+
+    await Count.update({
+      value: newValue
+    }, {
+      where: {
+        id: 1
+      }
+    })
+    const message = `new value ${newValue}, count: ${counter}`;
+    console.log(message);
+    res.send(message)
+
+  }, {}).then(() => {});
 })
 
 app.listen(port, () => console.log(`Example app listening on port ${port}!`))
