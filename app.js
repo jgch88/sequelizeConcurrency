@@ -1,11 +1,7 @@
-const cls = require('cls-hooked');
-const namespace = cls.createNamespace('locking-namespace');
-
 var AsyncLock = require('async-lock');
 var lock = new AsyncLock();
 
 const Sequelize = require('sequelize');
-Sequelize.useCLS(namespace);
 const express = require('express')
 const app = express()
 const port = 3000
@@ -44,31 +40,53 @@ app.get('/', async (req, res) => {
 })
 
 app.get('/add', async (req, res) => {
-  sequelize.transaction(async (t1) => {
+  let transaction;
+  try {
+    // trying to make db lock so that other requests cannot "read" it, but it's still reading
+    transaction = await sequelize.transaction({
+      lock: Sequelize.Transaction.LOCK.UPDATE
+    });
+
     counter += 1;
     console.log(`incrementing counter to ${counter}`)
 
+    console.log(`*********** finding Count`)
     const count = await Count.findOne({
       where: {
         id: 1
       }
-    });
+    }, { transaction });
     
+    console.log(`## ${count} ##`)
     const newValue = parseInt(count.value) + 1;
 
-    await Count.update({
+    if (counter !== newValue) {
+      // this request is being spammed too fast, rollback
+      throw new Error(`out of sync ${counter} vs ${newValue}`);
+    }
+
+    console.log(`*********** updating Count`)
+    const update = await Count.update({
       value: newValue
     }, {
       where: {
         id: 1
       }
-    })
-    const message = `new value ${newValue}, count: ${counter}`;
+    }, { transaction })
+    const message = `new value ${newValue}, count: ${counter}, update: ${update}`;
     console.log(message);
+
+    console.log(`*********** comitting transaction ${transaction}`)
+    await transaction.commit();
     res.send(message);
-    t1.commit();
-    return;
-  })
+  } catch (e) {
+    if (transaction) {
+      console.log(`*********** rolling back transaction ${transaction}, error: ${e}`)
+      await transaction.rollback();
+    }
+    res.send("error");
+  }
+
 })
 
 app.listen(port, () => console.log(`Example app listening on port ${port}!`))
