@@ -40,7 +40,11 @@ app.get('/', async (req, res) => {
 })
 
 app.get('/add', async (req, res) => {
-  lock.acquire('counter_key', async () => {
+  const t = await sequelize.transaction();
+
+  try {
+
+    
     counter += 1;
     console.log(`incrementing counter to ${counter}`)
 
@@ -48,7 +52,7 @@ app.get('/add', async (req, res) => {
       where: {
         id: 1
       }
-    });
+    }, { transaction: t });
     
     const newValue = parseInt(count.value) + 1;
 
@@ -58,12 +62,16 @@ app.get('/add', async (req, res) => {
       where: {
         id: 1
       }
-    })
+    }, { transaction: t })
     const message = `new value ${newValue}, count: ${counter}`;
     console.log(message);
-    res.send(message)
-
-  }, {}).then(() => {});
+    
+    await t.commit();
+    res.send(message);
+  } catch (e) {
+    await t.rollback();
+    res.send('error');
+  }
 })
 
 app.listen(port, () => console.log(`Example app listening on port ${port}!`))
