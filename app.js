@@ -8,6 +8,30 @@ const sequelize = new Sequelize('concurrency_test', 'postgres', 'password', {
   dialect: 'postgres'
 });
 
-app.get('/', (req, res) => res.send('Hello World!'))
+const Count = sequelize.define('Count', {
+  // attributes
+  id: {
+    allowNull: false,
+    autoIncrement: true,
+    primaryKey: true,
+    type: Sequelize.INTEGER
+  },
+  value: {
+    type: Sequelize.BIGINT
+  }
+}, {});
+
+// Count.create({
+//   value: 1
+// });
+
+app.get('/', async (req, res) => {
+  const count = await Count.findOne({
+    where: {
+      id: 1
+    }
+  });
+  res.send(`${JSON.stringify(count)}`)
+})
 
 app.listen(port, () => console.log(`Example app listening on port ${port}!`))

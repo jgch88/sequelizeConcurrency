@@ -2,7 +2,7 @@
 
 module.exports = {
   up: (queryInterface, Sequelize) => {
-    return queryInterface.createTable("Count", {
+    return queryInterface.createTable("Counts", {
       id: {
         allowNull: false,
         autoIncrement: true,
@@ -12,10 +12,20 @@ module.exports = {
       value: {
         type: Sequelize.BIGINT
       },
+      createdAt: {
+        allowNull: false,
+        type: Sequelize.DATE,
+        defaultValue: new Date()
+      },
+      updatedAt: {
+        allowNull: false,
+        type: Sequelize.DATE,
+        defaultValue: new Date()
+      }
     });
   },
 
   down: (queryInterface, Sequelize) => {
-    return queryInterface.dropTable("Count");
+    return queryInterface.dropTable("Counts");
   }
 };

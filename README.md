@@ -1,0 +1,1 @@
+- manually added a row to Count table with { id: 1, value: 1 }
