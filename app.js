@@ -8,7 +8,11 @@ const port = 3000
 
 const sequelize = new Sequelize('concurrency_test', 'postgres', 'password', {
   host: 'localhost',
-  dialect: 'postgres'
+  dialect: 'postgres',
+  pool: {
+    max: 100, // if this is not set, gatling will fail when set to 100 requests / second
+    min: 0
+  }
 });
 
 const Count = sequelize.define('Count', {
@@ -24,12 +28,6 @@ const Count = sequelize.define('Count', {
   }
 }, {});
 
-// Count.create({
-//   value: 1
-// });
-
-let counter = 0;
-
 app.get('/', async (req, res) => {
   const count = await Count.findOne({
     where: {
@@ -40,53 +38,77 @@ app.get('/', async (req, res) => {
 })
 
 app.get('/add', async (req, res) => {
-  let transaction;
+  // this is called an "optimistic" lock, that doesn't actually lock the full table
+  const transaction = await sequelize.transaction();
   try {
-    // trying to make db lock so that other requests cannot "read" it, but it's still reading
-    transaction = await sequelize.transaction({
-      lock: Sequelize.Transaction.LOCK.UPDATE
-    });
-
-    counter += 1;
-    console.log(`incrementing counter to ${counter}`)
-
-    console.log(`*********** finding Count`)
-    const count = await Count.findOne({
+    const update = await Count.update({
+      value: Sequelize.literal("\"value\" + 1")
+    }, {
       where: {
-        id: 1
+        id: 1,  // set other assumptions here
       }
     }, { transaction });
-    
-    console.log(`## ${count} ##`)
-    const newValue = parseInt(count.value) + 1;
 
-    if (counter !== newValue) {
-      // this request is being spammed too fast, rollback
-      throw new Error(`out of sync ${counter} vs ${newValue}`);
-    }
+    await transaction.commit();
+    res.send("message");
+  } catch (e) {
+    await transaction.rollback();
+    res.send("error");
+  }
+})
 
-    console.log(`*********** updating Count`)
-    const update = await Count.update({
+// transaction is useless here, multiple updates will update on the same read value
+app.get('/naiveAdd', async (req, res) => {
+  const { value } = await Count.findOne();
+  const newValue = parseInt(value, 10) + 1;
+  const transaction = await sequelize.transaction();
+  try {
+    await Count.update({
+      value: newValue
+    }, {
+      where: {
+        id: 1,  // set other assumptions here
+      }
+    }, { transaction });
+
+    await transaction.commit();
+    res.send("message");
+  } catch (e) {
+    await transaction.rollback();
+    res.send("error");
+  }
+})
+
+// using advisory lock
+app.get('/lockAdd', async (req, res) => {
+  try {
+    const lockId = 123;
+
+    const transaction = await sequelize.transaction();
+    await sequelize.query("SELECT pg_advisory_xact_lock(:lockId)", {
+      transaction,
+      replacements: { lockId },
+      type: Sequelize.QueryTypes.SELECT, // is this for the SELECT raw statement?
+      raw: true
+    })
+    const { value } = await Count.findOne({
+      transaction
+    });
+    const newValue = parseInt(value, 10) + 1;
+    await Count.update({
       value: newValue
     }, {
       where: {
         id: 1
       }
-    }, { transaction })
-    const message = `new value ${newValue}, count: ${counter}, update: ${update}`;
-    console.log(message);
+    }, { transaction });
 
-    console.log(`*********** comitting transaction ${transaction}`)
     await transaction.commit();
-    res.send(message);
+    res.send("message");
   } catch (e) {
-    if (transaction) {
-      console.log(`*********** rolling back transaction ${transaction}, error: ${e}`)
-      await transaction.rollback();
-    }
+    await transaction.rollback();
     res.send("error");
   }
-
 })
 
 app.listen(port, () => console.log(`Example app listening on port ${port}!`))

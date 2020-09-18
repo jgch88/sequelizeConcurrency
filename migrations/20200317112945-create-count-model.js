@@ -1,8 +1,8 @@
 'use strict';
 
 module.exports = {
-  up: (queryInterface, Sequelize) => {
-    return queryInterface.createTable("Counts", {
+  up: async (queryInterface, Sequelize) => {
+    await queryInterface.createTable("Counts", {
       id: {
         allowNull: false,
         autoIncrement: true,
@@ -23,9 +23,34 @@ module.exports = {
         defaultValue: new Date()
       }
     });
+
+    await queryInterface.createTable("Locks", {
+      id: {
+        allowNull: false,
+        autoIncrement: true,
+        primaryKey: true,
+        type: Sequelize.INTEGER
+      },
+      value: {
+        type: Sequelize.BIGINT
+      },
+      createdAt: {
+        allowNull: false,
+        type: Sequelize.DATE,
+        defaultValue: new Date()
+      },
+      updatedAt: {
+        allowNull: false,
+        type: Sequelize.DATE,
+        defaultValue: new Date()
+      }
+    });
+
+    return;
   },
 
   down: (queryInterface, Sequelize) => {
     return queryInterface.dropTable("Counts");
+    return queryInterface.dropTable("Locks");
   }
 };
