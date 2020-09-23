@@ -11,7 +11,7 @@ class BasicSimulation extends Simulation {
   val scn = scenario("Scenario Name") // A scenario is a chain of requests and pauses
     .exec(
       http("request_1")
-        .get("/add")
+        .get("/sfulockAdd")
     )
 
   // setUp(scn.inject(atOnceUsers(3)).protocols(httpProtocol))

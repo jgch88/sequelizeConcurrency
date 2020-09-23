@@ -4,6 +4,9 @@ Need to get the gatling-charts-highcharts-bundle to run the test
 https://gatling.io/open-source/start-testing/
 Copy BasicSimulation.scala into ${gatling-dir}/user-files/simulations/computer-database
 
+Run Gatling
+./${gatling-dir}/bin/gatling.sh (choose the BasicSimulation)
+
 Sequelize connection pool needs to be increased if multiple transactions are trying to be committed
 
 Notes
@@ -23,3 +26,7 @@ https://github.com/sequelize/sequelize/issues/8196
 
 Additional comments
 make sure that the value has not changed that depends on what where condition we apply for the update statement, it is basically optimistic lock, when do the update, adding a where clause to make sure the assumption still holds. Using this we can make sure the points does not deduct to become a negative number or making sure the session slots not being overbooked, without the need to use a explicit lock, like select ... for update
+
+Readings:
+https://rclayton.silvrback.com/distributed-locking-with-postgres-advisory-locks
+https://vladmihalcea.com/a-beginners-guide-to-database-locking-and-the-lost-update-phenomena/

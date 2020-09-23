@@ -37,8 +37,8 @@ app.get('/', async (req, res) => {
   res.send(`${JSON.stringify(count)}`)
 })
 
-app.get('/add', async (req, res) => {
-  // this is called an "optimistic" lock, that doesn't actually lock the full table
+// this is called an "optimistic" lock, that doesn't actually lock the full table
+app.get('/optimisticLockAdd', async (req, res) => {
   const transaction = await sequelize.transaction();
   try {
     const update = await Count.update({
@@ -53,7 +53,7 @@ app.get('/add', async (req, res) => {
     res.send("message");
   } catch (e) {
     await transaction.rollback();
-    res.send("error");
+    res.status(500).send("error");
   }
 })
 
@@ -75,11 +75,11 @@ app.get('/naiveAdd', async (req, res) => {
     res.send("message");
   } catch (e) {
     await transaction.rollback();
-    res.send("error");
+    res.status(500).send("error");
   }
 })
 
-// using advisory lock
+// using advisory lock, more like a mutex lock
 app.get('/lockAdd', async (req, res) => {
   try {
     const lockId = 123;
@@ -88,7 +88,7 @@ app.get('/lockAdd', async (req, res) => {
     await sequelize.query("SELECT pg_advisory_xact_lock(:lockId)", {
       transaction,
       replacements: { lockId },
-      type: Sequelize.QueryTypes.SELECT, // is this for the SELECT raw statement?
+      type: Sequelize.QueryTypes.SELECT, // this is for the raw query SELECT statement
       raw: true
     })
     const { value } = await Count.findOne({
@@ -107,7 +107,45 @@ app.get('/lockAdd', async (req, res) => {
     res.send("message");
   } catch (e) {
     await transaction.rollback();
-    res.send("error");
+    res.status(500).send("error");
+  }
+})
+
+// select for update lock
+// requires repeatable read or serializable isolation, so that "in transit" updates don't get lost
+// don't require the "lock" in the update, just need it in the findAll
+// cons: rollbacks happen
+app.get('/sfulockAdd', async (req, res) => {
+  // https://sequelize.org/master/manual/transactions.html#isolation-levels
+  // https://www.geeksforgeeks.org/transaction-isolation-levels-dbms
+  // https://vladmihalcea.com/a-beginners-guide-to-database-locking-and-the-lost-update-phenomena/
+  const transaction = await sequelize.transaction({
+    isolationLevel: Sequelize.Transaction.ISOLATION_LEVELS.REPEATABLE_READ
+  });
+  try {
+    const count = await Count.findAll({
+      where: {
+        id: 1,
+      },
+      lock: transaction.LOCK.update,
+      transaction
+    });
+    
+    const newValue = parseInt(count[0].value, 10) + 1;
+
+    console.log("newValue", newValue);
+    // cannot use Count.update, need the count[0] row locked by findAll above
+    await count[0].update({
+      value: newValue
+    }, { 
+      transaction 
+    });
+
+    await transaction.commit();
+    res.send("message");
+  } catch (e) {
+    await transaction.rollback();
+    res.status(500).send("error");
   }
 })
 
