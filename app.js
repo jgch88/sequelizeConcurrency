@@ -12,14 +12,13 @@ const sequelize = new Sequelize('concurrency_test', 'postgres', 'password', {
   pool: {
     // https://github.com/sequelize/sequelize/blob/master/src/dialects/abstract/connection-manager.js
     // default value is 5
-    // how to tune? https://docs.microsoft.com/en-us/azure/postgresql/concepts-limits divided by no. of pods?
-    max: 100, // if this is not set, gatling will fail when set to 100 requests / second.
-    min: 0
+    max: 5, // if this is not set, gatling will fail when set to 100 requests / second for optimistic / advisory locks
+    min: 0,
+    acquire: 40000
   }
 });
 
 const Count = sequelize.define('Count', {
-  // attributes
   id: {
     allowNull: false,
     autoIncrement: true,
@@ -40,18 +39,45 @@ app.get('/', async (req, res) => {
   res.send(`${JSON.stringify(count)}`)
 })
 
-// this is called an "optimistic" lock, that doesn't actually lock the full table
-// con: fails on connection pool size of 5, timeout presumably due to concurrent access of db choking
-app.get('/optimisticLockAdd', async (req, res) => {
-  const transaction = await sequelize.transaction(); // still doesn't work with 5 connection pool but repeatable_read
+app.get('/add', async (req, res) => {
   try {
-    const update = await Count.update({
-      value: Sequelize.literal("\"value\" + 1")
+    const count = await Count.findOne({
+      where: {
+        id: 1
+      }
+    });
+    const newValue = parseInt(count.value, 10) + 1
+    console.log(newValue);
+    await Count.update({
+      value: newValue
     }, {
       where: {
-        id: 1,  // set other assumptions here
+        id: 1
       }
-    }, { transaction });
+    })
+    
+    res.send("message");
+  } catch (e) {
+    res.status(500).send("error");
+  }
+})
+
+// transaction is useless here, multiple updates will update on the same read value
+// still have "lost updates"
+app.get('/naiveAdd', async (req, res) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const count = await Count.findAll({
+      where: {
+        id: 1
+      },
+      transaction
+    });
+    const newValue = parseInt(count[0].value, 10) + 1
+    console.log(newValue);
+    await count[0].update({
+      value: newValue
+    }, { transaction })
 
     await transaction.commit();
     res.send("message");
@@ -61,24 +87,63 @@ app.get('/optimisticLockAdd', async (req, res) => {
   }
 })
 
-// transaction is useless here, multiple updates will update on the same read value
-// "lost updates"
-app.get('/naiveAdd', async (req, res) => {
-  const { value } = await Count.findOne();
-  const newValue = parseInt(value, 10) + 1;
+// select for update lock
+// pros: can set connection pool size to max 5, and it still works, presumably because requests to db are queued
+// cons: rollbacks happen
+app.get('/sfulockAdd', async (req, res) => {
   const transaction = await sequelize.transaction();
+  // const transaction = await sequelize.transaction({
+  //   isolationLevel: Sequelize.Transaction.ISOLATION_LEVELS.REPEATABLE_READ
+  // });
   try {
-    await Count.update({
-      value: newValue
-    }, {
+    const count = await Count.findAll({
       where: {
-        id: 1,  // set other assumptions here
-      }
-    }, { transaction });
+        id: 1,
+      },
+      lock: transaction.LOCK.UPDATE,
+      transaction
+    });
+    const newValue = parseInt(count[0].value, 10) + 1;
+    console.log("newValue", newValue);
+    // cannot use Count.update, need the count[0] row locked by findAll above
+    await count[0].update({
+      value: newValue
+    }, { transaction })
 
     await transaction.commit();
     res.send("message");
   } catch (e) {
+    await transaction.rollback();
+    res.status(500).send("error");
+  }
+})
+
+// this is called an "optimistic" lock, that doesn't actually lock the full table
+// con: fails on connection pool size of 5, timeout presumably due to concurrent access of db choking
+app.get('/optimisticLockAdd', async (req, res) => {
+  const transaction = await sequelize.transaction(); // still doesn't work with 5 connection pool but repeatable_read
+  try {
+    const count = await Count.findAll({
+      where: {
+        id: 1,
+      },
+      transaction
+    });
+    console.log(count[0].value);
+    const [ updatedRows ] = await Count.update({
+      value: Sequelize.literal("\"value\" + 1")
+    }, {
+      where: {
+        id: 1,  
+        value: count[0].value // only update if count value hasn't changed since the query above
+      }
+    }, { transaction });
+    console.log("updatedRows", updatedRows)
+
+    await transaction.commit();
+    res.send("message");
+  } catch (e) {
+    console.log("error", JSON.stringify(e))
     await transaction.rollback();
     res.status(500).send("error");
   }
@@ -105,48 +170,9 @@ app.get('/lockAdd', async (req, res) => {
       value: newValue
     }, {
       where: {
-        id: 1
+        id: 1 // set other assumptions here
       }
     }, { transaction });
-
-    await transaction.commit();
-    res.send("message");
-  } catch (e) {
-    await transaction.rollback();
-    res.status(500).send("error");
-  }
-})
-
-// select for update lock
-// requires repeatable read or serializable isolation, so that "in transit" updates don't get lost
-// don't require the "lock" in the update, just need it in the findAll
-// cons: rollbacks happen
-// pros: can set connection pool size to max 5, and it still works, presumably because requests to db are queued
-app.get('/sfulockAdd', async (req, res) => {
-  // https://sequelize.org/master/manual/transactions.html#isolation-levels
-  // https://www.geeksforgeeks.org/transaction-isolation-levels-dbms
-  // https://vladmihalcea.com/a-beginners-guide-to-database-locking-and-the-lost-update-phenomena/
-  const transaction = await sequelize.transaction({
-    isolationLevel: Sequelize.Transaction.ISOLATION_LEVELS.REPEATABLE_READ
-  });
-  try {
-    const count = await Count.findAll({
-      where: {
-        id: 1,
-      },
-      lock: transaction.LOCK.update,
-      transaction
-    });
-    
-    const newValue = parseInt(count[0].value, 10) + 1;
-
-    console.log("newValue", newValue);
-    // cannot use Count.update, need the count[0] row locked by findAll above
-    await count[0].update({
-      value: newValue
-    }, { 
-      transaction 
-    });
 
     await transaction.commit();
     res.send("message");

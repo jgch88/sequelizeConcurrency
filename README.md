@@ -1,4 +1,8 @@
-- manually added a row to Count table with { id: 1, value: 1 }
+Setup
+- Run sequelize db migration
+- Manually added a row to Count table with { id: 1, value: 1 }
+
+node app.js
 
 Need to get the gatling-charts-highcharts-bundle to run the test
 https://gatling.io/open-source/start-testing/
@@ -30,3 +34,6 @@ make sure that the value has not changed that depends on what where condition we
 Readings:
 https://rclayton.silvrback.com/distributed-locking-with-postgres-advisory-locks
 https://vladmihalcea.com/a-beginners-guide-to-database-locking-and-the-lost-update-phenomena/
+https://dsinecos.github.io/blog/Debugging-ResourceRequest-Timed-Out-Error-In-Sequelize
+https://sequelize.org/master/manual/transactions.html#isolation-levels
+https://www.geeksforgeeks.org/transaction-isolation-levels-dbms
