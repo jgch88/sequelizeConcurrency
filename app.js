@@ -10,7 +10,10 @@ const sequelize = new Sequelize('concurrency_test', 'postgres', 'password', {
   host: 'localhost',
   dialect: 'postgres',
   pool: {
-    max: 100, // if this is not set, gatling will fail when set to 100 requests / second
+    // https://github.com/sequelize/sequelize/blob/master/src/dialects/abstract/connection-manager.js
+    // default value is 5
+    // how to tune? https://docs.microsoft.com/en-us/azure/postgresql/concepts-limits divided by no. of pods?
+    max: 100, // if this is not set, gatling will fail when set to 100 requests / second.
     min: 0
   }
 });
@@ -38,8 +41,9 @@ app.get('/', async (req, res) => {
 })
 
 // this is called an "optimistic" lock, that doesn't actually lock the full table
+// con: fails on connection pool size of 5, timeout presumably due to concurrent access of db choking
 app.get('/optimisticLockAdd', async (req, res) => {
-  const transaction = await sequelize.transaction();
+  const transaction = await sequelize.transaction(); // still doesn't work with 5 connection pool but repeatable_read
   try {
     const update = await Count.update({
       value: Sequelize.literal("\"value\" + 1")
@@ -58,6 +62,7 @@ app.get('/optimisticLockAdd', async (req, res) => {
 })
 
 // transaction is useless here, multiple updates will update on the same read value
+// "lost updates"
 app.get('/naiveAdd', async (req, res) => {
   const { value } = await Count.findOne();
   const newValue = parseInt(value, 10) + 1;
@@ -80,11 +85,12 @@ app.get('/naiveAdd', async (req, res) => {
 })
 
 // using advisory lock, more like a mutex lock
+// con: fails on connection pool size of 5, timeout presumably due to concurrent access of db choking
 app.get('/lockAdd', async (req, res) => {
   try {
     const lockId = 123;
 
-    const transaction = await sequelize.transaction();
+    const transaction = await sequelize.transaction(); // also doesn't work with 5 connection pool but repeatable_read
     await sequelize.query("SELECT pg_advisory_xact_lock(:lockId)", {
       transaction,
       replacements: { lockId },
@@ -115,6 +121,7 @@ app.get('/lockAdd', async (req, res) => {
 // requires repeatable read or serializable isolation, so that "in transit" updates don't get lost
 // don't require the "lock" in the update, just need it in the findAll
 // cons: rollbacks happen
+// pros: can set connection pool size to max 5, and it still works, presumably because requests to db are queued
 app.get('/sfulockAdd', async (req, res) => {
   // https://sequelize.org/master/manual/transactions.html#isolation-levels
   // https://www.geeksforgeeks.org/transaction-isolation-levels-dbms
@@ -148,5 +155,7 @@ app.get('/sfulockAdd', async (req, res) => {
     res.status(500).send("error");
   }
 })
+
+// when combined with say a inprogress unique constraint, it also reduces chance of error
 
 app.listen(port, () => console.log(`Example app listening on port ${port}!`))
